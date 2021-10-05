@@ -1,0 +1,84 @@
+---
+title: "Competing contact functions"
+author: "DJC & LMB"
+date: "10/19/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Robots!
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# loads the necessary packages and sets the theme
+require(shiny)
+require(ggplot2)
+require(cowplot)
+require(bbmle)
+require(rsconnect)
+theme_set(theme_cowplot())
+```
+
+## Robots
+
+```{r, echo=F}
+# Shiny app with 2 fields that the user can submit data for
+shinyApp(
+  
+  ui = fluidPage(
+    sidebarPanel(#DT::dataTableOutput("responses", width = 150), tags$hr(),
+    numericInput(inputId = "Hexbugs", value=NA, label= "Hexbug abundance", min=0, step=1),
+    numericInput(inputId = "Contacts", value=NA, label= "Contacts", min=0, step=1),
+    actionButton("submit", "Submit"),
+    actionButton("delete", "Delete last"),
+    actionButton("clear", "Clear")
+    ),
+    
+     mainPanel(plotOutput("PopPlot"))
+               
+  ),
+  
+  server = function(input, output, session) {
+    
+    # One way that works to get data into the app (https://stackoverflow.com/questions/38659349/shiny-update-numeric-input-data-frame-and-graph-output)
+    addData <- reactiveValues()
+    addData$dataset0 <- data.frame("Hexbugs" = numeric(), "Contacts" = numeric())
+
+
+    # When the Submit button is clicked, add to the dataset.
+    observeEvent(input$submit, {
+          addData$dataset0 <- rbind(addData$dataset0, data.frame(Hexbugs = input$Hexbugs, Contacts = input$Contacts))
+          if(dim(addData$dataset0)[1] >= 5){ # Only calculate the model fits if there are at least 5 data points
+            addData$fit.dt <- mle2(Contacts ~ dpois(0.001 + c*Hexbugs), start=list(c=1), data=addData$dataset0)
+            addData$fit.ft <- mle2(Contacts ~ dpois(0.001 + abs(c)), start=list(c=5), data=addData$dataset0)
+          }
+          
+    })
+    
+    # When the Delete last button is clicked, take the last row away from the dataset
+    observeEvent(input$delete, {
+          addData$dataset0 <- addData$dataset0[-dim(addData$dataset0)[1],]
+    })
+   # When the Clear  button is clicked, return to an empty dataset
+    observeEvent(input$delete, {
+          addData$dataset0 <- data.frame("Hexbugs" = numeric(), "Contacts" = numeric())
+    })
+
+
+    output$PopPlot <- renderPlot(if(dim(addData$dataset0)[1] < 5){
+                                        ggplot(data=addData$dataset0, aes(x=Hexbugs, y=Contacts)) + geom_point()}else{
+                                              ggplot(data=addData$dataset0, aes(x=Hexbugs, y=Contacts)) + 
+                                              geom_point() + geom_abline(intercept = 0, slope = coef(addData$fit.dt)["c"], colour="blue") +
+                                              geom_abline(intercept = coef(addData$fit.dt)["c"], slope = 0, colour="red")
+                                            })
+   },
+  
+  options = list(height = 900)
+)
+
+```
+
