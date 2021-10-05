@@ -1,0 +1,400 @@
+---
+title: "Exploring two-species competition"
+author: "DJC & LMB"
+date: "9/28/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE}
+# Builds a polygon for shading a ggplot (Thanks StackOverflow! https://stackoverflow.com/questions/6801571/ggplot2-shade-area-above-line)
+buildPoly <- function(xr, yr, slope = 1, intercept = 0, above = TRUE){
+  #Assumes ggplot default of expand = c(0.05,0)
+  xrTru <- xr + 0.05*diff(xr)*c(-1,1)
+  yrTru <- yr + 0.05*diff(yr)*c(-1,1)
+  
+  #Find where the line crosses the plot edges
+  yCross <- (yrTru - intercept) / slope
+  xCross <- (slope * xrTru) + intercept
+  
+  #Build polygon by cases
+  if (above & (slope >= 0)){
+    rs <- data.frame(x=-Inf,y=Inf)
+    if (xCross[1] < yrTru[1]){
+      rs <- rbind(rs,c(-Inf,-Inf),c(yCross[1],-Inf))
+    }
+    else{
+      rs <- rbind(rs,c(-Inf,xCross[1]))
+    }
+    if (xCross[2] < yrTru[2]){
+      rs <- rbind(rs,c(Inf,xCross[2]),c(Inf,Inf))
+    }
+    else{
+      rs <- rbind(rs,c(yCross[2],Inf))
+    }
+  }
+  if (!above & (slope >= 0)){
+    rs <- data.frame(x= Inf,y= -Inf)
+    if (xCross[1] > yrTru[1]){
+      rs <- rbind(rs,c(-Inf,-Inf),c(-Inf,xCross[1]))
+    }
+    else{
+      rs <- rbind(rs,c(yCross[1],-Inf))
+    }
+    if (xCross[2] > yrTru[2]){
+      rs <- rbind(rs,c(yCross[2],Inf),c(Inf,Inf))
+    }
+    else{
+      rs <- rbind(rs,c(Inf,xCross[2]))
+    }
+  }
+  if (above & (slope < 0)){
+    rs <- data.frame(x=Inf,y=Inf)
+    if (xCross[1] < yrTru[2]){
+      rs <- rbind(rs,c(-Inf,Inf),c(-Inf,xCross[1]))
+    }
+    else{
+      rs <- rbind(rs,c(yCross[2],Inf))
+    }
+    if (xCross[2] < yrTru[1]){
+      rs <- rbind(rs,c(yCross[1],-Inf),c(Inf,-Inf))
+    }
+    else{
+      rs <- rbind(rs,c(Inf,xCross[2]))
+    }
+  }
+  if (!above & (slope < 0)){
+    rs <- data.frame(x= -Inf,y= -Inf)
+    if (xCross[1] > yrTru[2]){
+      rs <- rbind(rs,c(-Inf,Inf),c(yCross[2],Inf))
+    }
+    else{
+      rs <- rbind(rs,c(-Inf,xCross[1]))
+    }
+    if (xCross[2] > yrTru[1]){
+      rs <- rbind(rs,c(Inf,xCross[2]),c(Inf,-Inf))
+    }
+    else{
+      rs <- rbind(rs,c(yCross[1],-Inf))
+    }
+  }
+  
+  return(rs)
+}
+
+```
+
+This ShinyApp allows users to explore the dynamics competition between two species. First, we will represent competition **phenomenologically** with the *Lotka-Volterra Competition* model. Once we cover *Consumer-Resource models*, we will come back around to a **mechanistic** model of competiton between two consumers. In any case, the *Lotka-Volterra Competition* model is an extension of the logistic growth model (without harvesting) to two species. We will see that the model can deliver those four *qualitative* outcomes that we discussed in class:
+
+1. Species 1 excludes Species 2
+2. Species 2 exlcudes Species 1
+3. Coexistence
+4. Alternative stable states (aka, "Priority effects" and "It depends")
+
+## Background on the Lotka-Volterra competition model.
+This app builds from the same model of a logistically growing population that we used in the activity focusing on harvesting. It first makes two simplifications: 1) rather than specifying birth and death rates, *b* and *d*, we simply use the *population growth rate*, *r* = *b - d*, 2) we eliminate harvesting. For one species, this returns us to the classic *Logistic growth model*:
+
+\[
+\frac{dN}{dt}=(r(1-cN))N
+\]
+
+Now, let's build complexity in small steps. First, let's add a second species and denote each species as 1 and 2 with subscripts:
+
+\[
+\frac{dN_1}{dt}=(r_1(1-c_1N_1))N_1
+\]
+\[
+\frac{dN_2}{dt}=(r_2(1-c_2N_2))N_2
+\]
+
+So far, we've just replicated our logistic growth equation, but we have not specified any way in which each species affects the other. So, let's allow each species to exert competitive effects on the other, using $\alpha$ (the Greek letter alpha) with subscripts that designate the effect of one species on the other. Formally, you should interpret $\alpha_{ij}$ order as "the *per capita* competitive effect of species i on species j":
+
+\[
+\frac{dN_1}{dt}=(r_1(1-c_1N_1 -\alpha_{21}N_2))N_1
+\]
+\[
+\frac{dN_2}{dt}=(r_2(1-c_2N_2-\alpha_{12}N_1))N_2
+\]
+
+Now, just as each species' growth rate is affected by its own total density it is also affected by the total density of the other species.
+
+### Question 1: Under what conditions would species one experience stronger interspecific competition than intraspecific competition? Hint: write an inequality between two parameters, do not worry about choosing a specific value.
+
+### Question 2: Under what conditions would these two species experience no interaction? Hint: What parameters must take on specific value(s)?
+
+
+## How equilibria relate to the four qualitative outcomes
+Recall our single-species *Logistic Growth model* There were two potential equilibria, $N^* = 0$ and $N^* = \frac{(b_M - d)}{b_Mc}$. We found these equilibria by setting $\frac{dN}{dt}= 0$ and solving for $N$, denoting any solutions as $N^*$. Now, we have two equations, one for each species, so the process is slightly more difficult, but it is still manageable:
+
+**For a system of ODEs, an equilibrium will occur when all of the rates of change equal zero.** So, we set $\frac{dN_1}{dt}= 0$ and $\frac{dN_2}{dt}= 0$ and solve for pairs of values for $N_1$ and $N_2$ that satisfy this condition:
+
+\[
+\frac{dN_1}{dt}=(r_1(1-c_1N_1 -\alpha_{21}N_2))N_1 = 0
+\]
+\[
+\frac{dN_2}{dt}=(r_2(1-c_2N_2-\alpha_{12}N_1))N_2 = 0
+\]
+
+### The first solution  - The trivial equilibrium, $N^*_1 = 0$ and $N^*_2 = 0$
+If we look at the two equations, we notice that each rate of change is a product of two terms, the complicated term in parentheses and the density of the species itself. Therefore, we can see that $\frac{dN_1}{dt}=0$ at $N^*_1 = 0$ and $\frac{dN_2}{dt}=0$ $N^*_2 = 0$. Therefore, our first solution is the *trivial equilibrium* in which neither species is present.
+
+### The next two solutions  - The boundary equilibria, ($N^*_1 = 0$, $N^*_2 = \frac{1}{c_2}$) and ($N^*_1 = \frac{1}{c_1}$, $N^*_2 =0$)
+When one species is absent, there is a second scenario that causes the rate of change for the second species to become zero - it reaches its own *carrying capacity* in isolation. In other words, it excludes the other species and effectively proceeds as if it is the only species in existence, following a *Logistic Growth model*. These are called *boundary equilibria* because one species is at the hard boundary of 0, it can't go negative. In any case, we find these results by setting the density of one species to zero and solving for when the more complicated term in parentheses is equal to zero:
+
+To obtain ($N^*_1 = 0$, $N^*_2 = \frac{1}{c_2}$):
+
+\[\frac{dN_1}{dt}= 0\] at $N^*_1 = 0$.
+Now plug $N^*_1 = 0$ in for all instances of $N_1$ in $\frac{dN_2}{dt}=(r_2(1-c_2N_2-\alpha_{12}N_1))N_2 = 0$.
+
+\[\frac{dN_2}{dt}=(r_2(1-c_2N_2-\alpha_{12}*0))N_2 = 0\]
+\[(r_2(1-c_2N_2))N_2 = 0\]
+Divide both sides by $N_2$,
+\[r_2(1-c_2N_2) = 0\]
+Divide both sides by $r_2$,
+\[1-c_2N_2 = 0\]
+Add $c_2N_2$ to both sides,
+\[1 = c_2N_2\]
+Isolate $N_2$ and give it an asterisk:
+\[N^*_2 = \frac{1}{c_2}\]
+Remember that the equilibrium is the pair of points, ($N^*_1 = 0$, $N^*_2 = \frac{1}{c_2}$).
+
+If you do the exact same steps, but flip the species labels, you can arrive at the other *boundary equilibrium*, ($N^*_1 = \frac{1}{c_1}$, $N^*_2 =0$).
+
+### The fourth solution - The interior equilibrium
+For the two species to coexist (in the model) in the long-term, there must be an *interior equilibrium*, one in which both species have positive abundance, and it also must be stable. The **mutual invasibility** criterion will tell us whether the *interior equilibrium* is stable, but we're going to need to find the equilibrium itself first.
+
+#### Start with $\frac{dN_1}{dt}$ & solve for the nonzero result (as far as we can)
+\[
+\frac{dN_1}{dt}=(r_1(1-c_1N_1 -\alpha_{21}N_2))N_1 = 0
+\]
+Divide both sides by $r_1N_1$,
+\[
+(1-c_1N_1 -\alpha_{21}N_2) = 0
+\]
+Isolate $N_1$. Add $c_1N_1$ to both sides,
+\[
+(1-\alpha_{21}N_2) = c_1N_1
+\]
+Divide both sides by $c_1$ & denote both state variables with asterisk,
+\[
+ N^*_1 = \frac{(1-\alpha_{21}N^*_2)}{c_1}
+\]
+### Now switch to $\frac{dN_2}{dt}$ & solve for the nonzero result (as far as we can)
+\[
+\frac{dN_2}{dt}=(r_2(1-c_2N_2-\alpha_{12}N_1))N_2 = 0
+\]
+Divide both sides by $r_2N_2$
+\[
+(1-c_2N_2-\alpha_{12}N_1) = 0
+\]
+Isolate $N_2$. Add $c_2N_2$ to both sides,
+\[
+(1-\alpha_{12}N_1) = c_2N_2
+\]
+Divide both sides by $c_2$ & denote both state variables with an asterisk,
+\[
+N^*_2 = \frac{1-\alpha_{12}N^*_1}{c_2}
+\]
+
+### Next, substitute the result for $N^*_2$ into the equation for $N^*_1$
+\[
+ N^*_1 = \frac{(1-\alpha_{21} (\frac{1-\alpha_{12}N^*_1}{c_2}))}{c_1}
+\]
+Gross. Fortunately, we can use *Mathematica* software to chug through this algebra, because it can do actual symbolic math. If you want to see the very basic script that solves the **interior equilibrium** for this model, just let me know. You're welcome to solve this algebra by hand, I just know that when I do that, I often make silly little mistakes. *Mathematica* is your best friend whenever you need to do algebra, linear algebra, or calculus(and it's free at Emory!). *Mathematica* told me the full answer for in just a few lines of code:
+
+
+\[
+ (N^*_1 = \frac{c_2 - \alpha_{21}}{c_1c_2-\alpha{21}\alpha{12}}, N^*_2=\frac{c_1 - \alpha_{12}}{c_1c_2-\alpha{21}\alpha{12}})
+\]
+
+You can specify some *special cases* to get some insight from this solution. For example, you can show that as long as the $\alpha_{ij}$ terms are positive (i.e., competition and not facilitation), then these equilibrium densities must be lower than the species' carrying capacities in isolation (the **boundary equilibria**).
+
+Now that we've shown ourselves that coexistence is possible, we want to determine *under what conditions is long-term coexistence predicted?*
+
+
+## Mutual invasibility - the coexistence criterion
+We will address this question with a relatively simple bit of math focused  on **coexistence**. It turns out, that much more complex modes of analysis, e.g., **Zero Net Growth Isoclines (ZNGIs)** and **Linear Stability Analysis** can prove that this simpler, much more intuitive approach can determine if **coexistence** (formally the **interior equilibrium**). To do so, we sort of invert the question - we ask, **When are both boundary equilibria unstable?** Describing this in more intuitive terms, we ask can Species 1 **invade** a population of Species 2 at its single-species equilibrium AND can Species 2 do the same to Species 1? If this is the case, then we say we have **mutual invasibility** and that  **both species can increase when they become rare** If so, then neither species can be driven extinct by the other. If this criterion is satisfied, then intraspecific competition is stronger than interspecific competition between the species, which is an intuitive description of coexistence.
+
+### Putting mutual invasibility into action
+Let's ask when Species 1 can **invade when rare**. To do so, we want to know what would happen if we add an extremely small density of Species 1 to a population of Species 2 at its carrying capacity. If the ***per capita* growth rate of Species 1 is positive**, then it can increase when rare:
+
+We need to evaluate the *per capita* growth rate of $N_1$, $\frac{1}{N_1}\frac{dN_1}{dt}$ at the boundary ($N^*_1 = 0$, $N^*_2 = \frac{1}{c_2}$),
+\[
+\frac{1}{N_1}\frac{dN_1}{dt}|^{N^*_1 = 0, N^*_2 = \frac{1}{c_2}}=r_1(1-c_1N_1-\alpha_{21}N_2)|^{N^*_1 = 0, N^*_2 = \frac{1}{c_2}}
+\]
+Here, the vertical bar indicates "evaluated at" the conditions that are written in the superscript to the right of the bar. This means that you can substitute those values into the equation.
+
+### Question 3: Under what conditions will Species 1 be able to invade when rare? Hint: Set the above equation greater than zero and solve for a combination of parameters.
+
+### Question 4: Under what conditions will Species 2 be able to invade when rare?
+
+### Question 5: Pick three combinations of parameters, one that leads to each of the first 3 qualitative outcomes. You can check your parameter combinations in the interactive plot below.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# loads the necessary packages and sets the theme
+require(shiny)
+require(ggplot2)
+require(cowplot)
+require(deSolve)
+require(rsconnect)
+theme_set(theme_cowplot())
+```
+
+## Background on the simulation technique - Numerical integration
+
+For all but the simplest differential equation models, a full mathematical solution for the dynamics is out of reach. Instead, we simply use computer software to calculate very accurate approximations of the dynamics by solving extremely tiny steps forward in time for the model. We can do this in **R** using the  **deSolve** package. You will not need to worry about the mathermatical details underlying model simulation in this class, but I will present the code so that you can see it. Because these approaches simulate a model **deterministically** there is no variation from run to run if the parameters and starting conditions are held constant. Additionally, **deterministic** simulations assume that the world is infinitely large and their outputs are formally *densities* rather than raw counts of *abundance*. This means that fractional outcomes, e.g. 1.5 individuals/L, make sense in deterministic models, whereas "1.5 individuals" would not make sense if describing a raw abundance as in our stochastic harvest model.
+
+## Code for deterministic simulation of the Lotka-Volterra model
+
+First we need to create a function in R that contains the definition of our model. Once we've defined our model, we can use a function from the **deSolve** package to simulate it. The following code defines our model as a function named *LV_comp*:
+
+```{r}
+# Lotka Volterra competition model
+LV_comp =function(t, y, parameters) { # The model must be defined as a function with three arguments: t (for time), y (the state variables), and parameters
+  N1=y[1]; N2=y[2]                   # For convenience, I like to spell out which state varible within the vector y is which
+  with(as.list(parameters),{         # The with() function allows us to write very clean equations for the model by telling r where to look for parameter names
+
+    dN1dt=r1* (1-c1*N1-a21*N2)*N1    # Equation for Species 1
+    dN2dt=r2 *(1-c2*N2-a12*N1)*N2    # Equation for Species 2
+
+    result = c(dN1dt,dN2dt)          # The function for simulation expects us to store the result this way
+    return(list(result))
+  }
+  ) 
+} 
+```
+
+Next, we need to provide some initial conditions, a timespan of simulation, and a parameter vector along with the function name to the ode() function from the **deSolve** package. Once we run the simulation, we can plot the results:
+```{r}
+# Additional information needed to specify the simulation scenario
+Initial_conditions = c(N1=1, N2=2.5)
+timespan = 50
+parameters = c(r1 = 0.5, r2 = 0.5, c1 = 0.01, c2 = 0.02, a12 = 0.05, a21 = 0.03)
+
+# Run the simulation with the ode() function from deSolve and convert to a dataframe
+simulation = data.frame(ode(y=Initial_conditions, times=0:timespan, parms = parameters, func=LV_comp, method="lsoda"))
+
+# Plot the results
+ggplot(data=simulation, aes(x=time)) + geom_line(aes(y=N1), colour="red") + geom_line(aes(y=N2), colour="blue") + ylab("Density")
+```
+
+# ZNGIs - None of this is required
+I am providing this content because it appears that almost everyone was taught (and hated) ZNGIs. This is a more formal approach to understanding the behavior of these models. Technically, it's a "graphical approach" that is less formal than **Linear Stability Analysis** which requires calculus and linear algebra. Still, it can be quite unintuitive. You will not be tested on your understanding of **ZNGIs** except that I want you to know that this approach exists. It is an oldschool approach that works well when applied to ODEs with two state variables, such as the **Lotka-Volterra Competition** model and the **Lotka-Volterra Predation** model, but it is not particularly useful for models that have more state variables (which is true of nearly all models these days).
+
+## How ZNGIs relate to the four qualitative outcomes
+When we demonstrate that the model can create these four qualitative outcomes, we will also show how they can be represented graphically with a concept called **Zero Net Growth Isoclines (ZNGIs)**. **ZNGIs** are lines drawn in **state space** . 
+
+
+## What are ZNGIs again?
+**Zero Net Growth Isoclines** are lines that separate regions of **state space** (a plot of a system where *each axis corresponds to a state variable*) that cause a given state variable to increase from those regions that cause that state variable to decrease. **ZNGIs** are useful because they draw curves that separate the conditions under which a species can increase in density (below the line) from the conditions under which that species will decrease in density. That said, they are a bit confusing when you begin to use them. Their main benefit is that the graphical orientation of the **ZNGIs** for each species determines the qualitative outcome of the model, so asking whether the species exclude each other or coexist becomes a mathematical/graphical task of asking whether the **ZNGIs** intersect or which one is higher than the other.
+
+Formally, you can determine the **ZNGI** by setting the differential equation for a state variable equal to zero and solving it as a function of any of the state variables. Note that is some models a state variable's growth or decline may depend on its own value and/or the values of some or all of the other state variables. **ZNGIs** themselves are closely related to **equilibrium points**, although they are not exactly the same thing. Each **ZNGI** draws a line that species when a single state variable stops changing, even if the other state variables continue to change. **Equilibria** occur when all of the state variables stop changing. Therefore, when a system has two state variables, like this one does, then an **interior equilibrium point** will occur when the **ZNGIs** intersect (note that other **equilibra**, such as the **trivial** ($N_1 = 0$, $N_2 = 0$) equilibrium, can also exist). if the **ZNGIs** do indeed intersect, then we know that coexistence is possible **if this interior equilibrium point is stable.**
+
+### Solving for the ZNGIs
+We return to the model equations, set each differential equation equal to zero, and then solve for $N_1$ and $N_2$. Once we do, we rearrange the equations in the form $N_2 = mN_1 + b$ to plot them jointly in state space with the x-axis corresponding to the density of Species 1 and the y-axis corresponding to the density of Species 2. Then, we can color the region that enables growth with red of Species 1 and blue for Species 2. The regions that cause decline will remain unshaded white.
+
+To obtain the ZNGI for Species 1:
+\[ \frac{dN_1}{dt} = r_1(1-c_1N_1-\alpha_{21}N_2)N_1\]
+Set the right hand side equal to zero:
+\[ r_1(1-c_1N_1-\alpha_{21}N_2)N_1 = 0\]
+Divide both sides by $r_1*N_1$:
+\[ (1-c_1N_1-\alpha_{21}N_2) = 0\]
+Rearrange to isolate $N_2$ on the left. Add $(c_1N_1 - 1)$ to both sides:
+\[ -\alpha_{21}N_2 = c_1N_1 - 1\]
+Multiply both sides by -1:
+\[ \alpha_{21}N_2 = 1 - c_1N_1\]
+Divide both sides by $\alpha_{21}$
+\[N_2 = \frac{1 - c_1N_1}{\alpha_{21}}\]
+Rearrange slightly, so we can see it in $N_2 = mN_1 + b$ form:
+\[N_2 =  -\frac{c_1}{\alpha_{21}}N_1 + \frac{1}{\alpha_{21}}\]
+
+## Optional task 1: Follow similar steps as above to obtain the ZNGI for Species 2
+
+### Plotting the ZNGIs
+Once we have the **ZNGIs**, we can plot them for any case. Here, we plot the **ZNGIs** for the same parameter combination as above. We also add a black curve, which traces the dynamics of Species 1 and 2 in state space. Here, time is not explicitly included, but we mark the final state with an arrowhead:
+
+```{r, echo=FALSE, warning=FALSE}
+  redshade <- with(as.list(parameters), data.frame(N1 = c(0, 1/c1), N2 = c(1/a21, 0)))
+  
+  blueshade <-with(as.list(parameters), data.frame(N1 = c(0, 1/a12), N2 = c(1/c2, 0)))
+  
+  with(as.list(parameters), ggplot() + xlim(0, 1.2/min(c1, a21)) + ylim(0, 1.2/min(c2, a12)) +
+                               geom_abline(intercept = 1/a21, slope = -c1/a21, colour="red") +
+                               geom_ribbon(data=blueshade, aes(x=N1, ymax=N2, ymin=0), fill="blue", alpha=0.2) +
+                               geom_abline(intercept = 1/c2, slope = -a12/c2, colour="blue") +
+                               geom_ribbon(data=redshade, aes(x=N1, ymax=N2, ymin=0), fill="red", alpha=0.2) +
+                               xlab("N1") + ylab("N2") +
+                               geom_path(data=simulation, aes(x=N1, y=N2), arrow=arrow()))
+                             
+```
+
+## Optional task 2: Look at the black curve tracing the dynamics in state space. Which of the four qualitative outcomes occurred?
+
+## Now explore the behavior of the Lotka-Volterra model
+This shinyapp allows you to vary the parameters of the model, $r_{i}$, $c_{i}$, and $\alpha_{ij}$ for the species of interest. It draws random starting densities for both species. It also automatically updates the display after you change the values of any input parameters. You may also vary the time span of the simulation. The top plot shows the **temporal dynamics** predicted by the model. The bottom plot shows the **state space** projection with the temporal dynamics drawn as a black curve with an arrow pointing to the final state.
+
+## Optional task 3: The fourth qualitative outcome, "Alternative Stable States" or "It Depends", occurs under a set of conditions somewhat "opposite" to **mutual invasibility** - it requires that neither species can invade the other. Find a set of parameters that can generate this outcome. See in the panel that some randomly chosen sets of initial conditions cause Species 1 to win while other initial conditions cause Species 2 to win without changing any of the parameter values. Hint: to make the model "reset" you can vary the timespan of simulation.
+
+```{r, echo=F}
+# Define UI for stochastic harvest app ----
+ui <- fluidPage(
+
+  titlePanel("Lotka-Volterra competition model"),
+
+  sidebarLayout(
+
+    sidebarPanel(
+    sliderInput(inputId = "r1", label= "r1", min=0, max=1, value = 0.1),
+    sliderInput(inputId = "r2", label= "r2", min=0, max=1, value = 0.1),
+    
+    sliderInput(inputId = "c1", label= "c1", min=0.01, max=1, value = 0.1),
+    sliderInput(inputId = "c2", label= "c2", min=0.01, max=1, value = 0.1),
+   
+    sliderInput(inputId = "a12", label= "a12", min=0, max=1, value = 0.1),
+    sliderInput(inputId = "a21", label= "a21", min=0, max=1, value = 0.1),
+    
+    sliderInput(inputId = "t", label= "Time steps", min=100, max=1000, value = 100, step = 100)
+    ),
+
+    mainPanel(
+    plotOutput("PopPlot"),
+    plotOutput("ZNGIs")
+    )
+  )
+)
+
+
+# Define server logic to make plots 
+server <- function(input, output) {
+  sim <- reactive({data.frame(ode(y=c(N1=runif(1, min=0, max=1/input$c1), N2=runif(1, min=0, max=1/input$c2)), times=0:input$t, 
+                                  parms = c(r1 = input$r1, r2 = input$r2, 
+                                            c1 = input$c1, c2 = input$c2,
+                                            a12 = input$a12, a21 = input$a21), func=LV_comp, method="lsoda"))})
+  
+  redshade <- reactive({data.frame(N1 = c(0, 1/input$c1), N2 = c(1/input$a21, 0))})
+  
+  blueshade <-reactive({data.frame(N1 = c(0, 1/input$a12), N2 = c(1/input$c2, 0))})
+ 
+  output$PopPlot <- renderPlot(ggplot(data = sim()) + 
+                                 geom_line(aes(x=time, y=N1), colour="blue") + 
+                                 geom_line(aes(x=time, y=N2), colour="red"))
+  output$ZNGIs <- renderPlot(ggplot() + xlim(0, 1.2/min(input$c1, input$c2, input$a12)) + ylim(0, 1.2/min(input$c1, input$a21, input$c2)) +
+                               geom_abline(intercept = 1/input$a21, slope = -input$c1/input$a21, colour="red") +
+                               geom_ribbon(data=blueshade(), aes(x=N1, ymax=N2, ymin=0), fill="blue", alpha=0.2) +
+                               geom_abline(intercept = 1/input$c2, slope = -input$a12/input$c2, colour="blue") +
+                               geom_ribbon(data=redshade(), aes(x=N1, ymax=N2, ymin=0), fill="red", alpha=0.2) +
+                               xlab("N1") + ylab("N2") +
+                               geom_path(data=sim(), aes(x=N1, y=N2), arrow=arrow())
+                             )
+}
+
+```
+```{r, echo=FALSE, fig.height=2}
+
+shinyApp(ui, server, options = list(height = 900))
+```
+
