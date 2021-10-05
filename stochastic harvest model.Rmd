@@ -1,0 +1,182 @@
+---
+title: "Exploring a stochastic harvest model"
+author: "DJC & LMB"
+date: "9/15/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This ShinyApp allows users to explore the dynamics of a simulated fishery. The population is represented by a logistic growth model that is fully unstructured (i.e., does not distinguish individuals according to their size, age, sex, or any other characteristic).
+
+## Background on the logistic harvest model
+The app uses the same model of a logistically growing population that is subjected to constant harvest pressure that we discussed in class. However, we now explicitly track the accumulation of harvested fish. This means our model is now a pair of differential equations and we are tracking two state variables, the population size of live fish in the water, N, and the cumulative total number of fish that we have harvested, H. Fish reproduction occurs at a maximum rate *bM* and it is reduced by intraspecific competition with intensity *c*. Fish can die naturally at a background death rate *d*. Fish are harvested at a rate *h*. 
+
+\[
+\frac{dN}{dt}=(b_M(1-cN) -d)N-hN
+\]
+\[
+\frac{dH}{dt}=hN
+\]
+
+### Question 1: Provide a written description of this model in one paragraph.
+Your written description should include the following components:
+
+1. Which state variables are being tracked
+2. What processes cause individuals to be created or move from one state variable to another
+3. Important details about processes, such as which parameters influence each process or what assumptions are built into the model
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# loads the necessary packages and sets the theme
+require(shiny)
+require(ggplot2)
+require(cowplot)
+require(rsconnect)
+theme_set(theme_cowplot())
+```
+
+## Background on the simulation technique - Gillespie's direct method
+
+Once you've written a differential equation model, you can choose to simulate it **deterministically** or **stochastically**. A **deterministic** simulation will proceed without any element of chance. Because of this, there is a direct mapping of inputs (i.e., parameters) to outputs. If you run a given deterministic model more than once with the same parameter set, you will always get the exact same answer. In contrast, a **stochastic** simulation will proceed with some element of chance or luck. Stochastic simulations can incorporate **demographic stochasticity**, which means that the outcome for any given individual can vary even if all individuals are expected to perform identically. There could also be **environmental stochasticity**, such that there are random differences in expected performance across space or time within the model. Formally, models could combine these (and other) sources of variation simultaneously.
+
+### Gillespie's direct method
+
+Gillespie's direct method is a "mathematically exact" stochastic simulation algorithm that can be used to add **demographic stochasticity** to a model. Its main advantages are that it exactly preserves the mean (or "expected") dynamics of the model and that it is simple to implement and understand. Its main downside is that it is extremely slow to run if there are many individuals. The method was first described in *Gillespie 1977, Exact Stochastic Simulation of Coupled Chemical Reactions, Journal of Physical Chemistry*. 
+
+The algorith works on the assumption that events cannot occur at the exact same moment. It then works out all of the possible events, calculates the expected rate at which each event should occur, determines how long until the next event (of any type) occurs, and then determines which event it actually is and applies the relevant change to the state variables. 
+
+One really great feature of the direct method is that individuals are represented discretely, such that the population sizes must take on integer values and that only one event can occur at a specific time. For example, a birth would add 1 individual to the population whereas a death would subtract 1 individual from the population. In a disease model, a transmission event would simultaneously subtract one susceptible individual and add one infected individual. Because individuals are represented as discrete units, this method is particularly useful for scenarios involving the potential for extinction.  
+
+#### The algorithm itself:
+The direct method contains only five steps to simulate the timing and identity of the next event, given the current population state and the parameters:
+
+1. Figure out all of the possible events, E_i, in your model
+2. For each event, determine the rate at which it occurs, R_i
+3. The rate at which any event occurs is R_tot = sum(R_i)
+4. The time to the next reaction (of yet unknown type) is exponentially-distributed with mean rate R_tot
+5. Which event occurs is essentially a multinomial with probabilities equal to R_i/R_tot
+
+
+## Question 2: Identify all of the possible events that can occur in the stochastic harvest model described above. How would a single event of each type change the number of individuals represented by each state variable?
+
+
+## Code for one timestep of the stochastic model
+The code below implements the Gillespie algorithm for our model. If you are comfortable reviewing R code, try to match the lines of code to the algorithm steps outlined above.
+
+```{r}
+Direct.step.harvest = function(state, parameters){
+  N = state[1]; H = state[2]; t = state[3]
+  with(as.list(parameters),
+       {
+         if(N == 0){return(c(N, H, t+1))}
+         # There are only three transitions (birth, natural death, and harvest)
+         R_birth = max(b*(1 - c*N)*N, 0)
+         R_death = d*N
+         R_harvested = h*N
+         # Total rate is sum of all transition rates
+         R_total = R_birth + R_death + R_harvested
+         # Determine length of timestep (exponential distributed wait time with mean rate R_total)
+         delta.t = -1/R_total*log(runif(1))
+         # Determine which rate occurs
+         p = runif(1)
+         if(p <= R_birth/R_total){ # birth happens
+           N.out = N + 1
+           H.out = H}else if(p <= (R_birth + R_death)/R_total){ # else-if a death happens
+             N.out = N - 1
+             H.out = H} else { # else a harvest happens
+               N.out = N - 1
+               H.out = H + 1
+             }
+         state.out = c(N.out, H.out, t+delta.t)
+         state.out
+       }
+  )
+}
+```
+
+## Code for running the model over a defined timespan
+All that remains to run our simulations is to iterate the code from above (which applies to a single step in time) many times so that we can watch the population dynamics unfold over a specified time span.
+```{r}
+stochastic_harvest = function(b, d, c, h, timespan){
+  pop.state = matrix(c("N" = max(round((b-d)/(b*c)), 0), "H" = 0, "t" = 0), nrow=1, ncol=3)
+  colnames(pop.state) = c("N", "H","t")
+  i = 1
+  while (pop.state[i, "t"] < timespan){
+    pop.state = rbind(pop.state, Direct.step.harvest(state = pop.state[i,], parameters = c("b"=b,"d"=d,"c"=c, "h"=h)))
+    i = i + 1
+  }
+  pop.state
+}
+
+```
+
+## Now explore the behavior of the stochastic harvest model
+This shinyApp allows you to visualize a stochastic run of the model. It automatically updates the display after you change the values of any input parameters. You may also vary the time span of the simulation. First look at the axis labels in each plot, then uncheck the first box to reveal Plot 1.
+
+#### Question 3. Look at values of the default set of parameters and the output in plot 1. What does the blue line represent? What does the black line represent?
+
+#### Question 4. Choose at least one parameter (except *h*) and vary it along its range. What systematic pattern(s), if any, emerge from varying this parameter.
+
+#### Question 5. Reveal Plot 2. Vary *h* and explore how the dynamics in Plots 1 and 2 change. Complete these tasks:
+  
+  1. Find and h that causes extinction. How does "Catch per unit effort" change over time in that simulation
+  2. Our modeling told us that the best value of h is (b-d)/2. Try several combinations explain if you agree
+
+```{r, echo=F}
+# Define UI for stochastic harvest app ----
+ui <- fluidPage(
+
+  titlePanel("Stochastic logistic growth & harvest model"),
+
+  sidebarLayout(
+
+    sidebarPanel(
+    checkboxInput(inputId= "hide1", label = "hide plot 1?", value=TRUE),
+    checkboxInput(inputId= "hide2", label = "hide plot 2?", value=TRUE),
+    sliderInput(inputId = "b", label= "maximum birth rate", min=0.01, max=1, value = 0.2),
+    sliderInput(inputId = "d", label= "death rate", min=0.01, max=1, value = 0.1),
+    sliderInput(inputId = "c", label= "competition coefficient (on births)", min=0.005, max=.02, value = 0.01),
+    sliderInput(inputId = "h", label= "harvesting effort", min=0, max=2, value = 0, step = 0.01),
+    sliderInput(inputId = "t", label= "Time span", min=100, max=500, value = 100, step = 100)
+    ),
+
+    mainPanel(
+    plotOutput("PopPlot"),
+    plotOutput("HarvestPlot")
+    )
+  )
+)
+
+
+# Define server logic to make plots 
+server <- function(input, output) {
+  popsize <- reactive({data.frame(stochastic_harvest(b = input$b, d = input$d, c = input$c, h = input$h, timespan = input$t))})
+  
+  #reactive({input$N0*exp(input$r*(0:input$t))})
+  output$PopPlot <- renderPlot(
+    if(input$hide1 == TRUE){ ggplot() +  ylab("Population size") + xlab("time")}else{
+    ggplot(data = popsize(), aes(x=t, y = N)) + geom_line() + ylab("Population size") + xlab("time") +
+        geom_abline(intercept = max(round((input$b-input$d)/(input$b*input$c)), 0), slope=0, lty=2, col="blue") +
+      draw_label(ifelse(min(popsize()$N) == 0 & input$h > 0, "Nice job, greedy jerk!", ""), x = 0.5*max(popsize()$t), y = 0.85*max(round((input$b-input$d)/(input$b*input$c)), 0), size=36)})
+  output$HarvestPlot <- renderPlot({
+    plot_grid(
+    if(input$hide2 == TRUE){ ggplot() +  ylab("Cumulative harvest") + xlab("time")} else
+      if(input$h == 0){ ggplot() +  ylab("Cumulative harvest")  + xlab("time") + draw_label("No harvest")} else {
+    ggplot(data = popsize(), aes(x=t, y = H)) + geom_line() + ylab("Cumulative harvest") + xlab("time") },
+    if(input$hide2 == TRUE){ ggplot() +  ylab("Cumulative catch per unit effort") + xlab("time")} else 
+      if(input$h == 0){ ggplot() +  ylab("Cumulative catch per unit effort")  + xlab("time") + draw_label("No harvest")} else {
+        ggplot(data = subset(popsize(), t > 0), aes(x=t, y = H/(t*input$h))) + geom_line() + ylab("Cumulative catch per unit effort") + xlab("time")}, nrow=1, ncol=2)
+  })
+}
+
+```
+```{r, echo=FALSE, fig.height=2}
+
+shinyApp(ui, server, options = list(height = 900))
+```
+
+#### Question 6. What process or mechanism that is missing from this extremely simplified model do you think is important to add? How would you expect it to change any outcome(s)?
