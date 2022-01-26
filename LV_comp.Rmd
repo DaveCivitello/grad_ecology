@@ -380,8 +380,8 @@ server <- function(input, output) {
   blueshade <-reactive({data.frame(N1 = c(0, 1/input$a12), N2 = c(1/input$c2, 0))})
  
   output$PopPlot <- renderPlot(ggplot(data = sim()) + 
-                                 geom_line(aes(x=time, y=N1), colour="blue") + 
-                                 geom_line(aes(x=time, y=N2), colour="red"))
+                                 geom_line(aes(x=time, y=N1), colour="red") + 
+                                 geom_line(aes(x=time, y=N2), colour="blue"))
   output$ZNGIs <- renderPlot(ggplot() + xlim(0, 1.2/min(input$c1, input$c2, input$a12)) + ylim(0, 1.2/min(input$c1, input$a21, input$c2)) +
                                geom_abline(intercept = 1/input$a21, slope = -input$c1/input$a21, colour="red") +
                                geom_ribbon(data=blueshade(), aes(x=N1, ymax=N2, ymin=0), fill="blue", alpha=0.2) +

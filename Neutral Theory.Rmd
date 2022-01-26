@@ -1,0 +1,140 @@
+---
+title: "The Neutral Theory of Biodiversity"
+author: "DJC & LMB"
+date: "10/28/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This ShinyApp allows users to explore the dynamics of a *local ecological community* in an important scenario that underpins Stephen Hubbell's **Unified Neutral Theory of Biodiversity and Biogeography**, which is often simply called the **Neutral Theory of Biodiversity**. The theory can be worth learning quite a bit more about, and it (along with alternative models of community dynamics) is presented in a compelling way in Hubbell's 2001 book, **The Unified Neutral Theory of Biodiversity and Biogeography**. It's a great read.
+
+At the heart of the **Neutral Theory** is the assumption that *all individuals are interchangeable*. I like to interpret this assumption as *all individuals play by the same rules*, meaning that they affect and are affected by others in identical ways. It is important to realize that this is subtly different than an assumption that *all species are interchangeable*. If Hubbell's assumption were true, what would communities look like?
+
+## Zero-sum ecological drift
+
+Hubbell's neutral theory stems largely from assumptions that establish a scenario of *zero-sum ecological drift* the theory builds to evaluate community dynamics at two spatio-temporal scales: *local community dynamics* and *meta-community dynamics*. A basic assumption is made that **local** dynamics occur at faster time scales and smaller spatial scales than **meta community** dynamics. We explore only the **local** dynamics here.
+
+### Assumptions
+
+*Zero-sum ecological drift* describes a scenario meeting the following assumptions:
+
+1. The local community occupies a habitat with a fixed number of sites, *J*.
+2. The local community is saturated with individuals, i.e., there is one individual occupying each site.
+3. Individuals resist displacement, i.e., persist in the community, until they die due to some disturbance.
+4. Each disturbance event kills some number of individuals, *D*, at random in the community.
+5. Instantly, these individuals are replaced by either (1) births from individuals surviving in the local community or (2) immigrants from the regional species pool.
+6. There is a fixed probability of a migrant replacing the dead individual(s).
+7. All individuals surviving in the local community have an equal probability of contributing the birth that replaces dead individual(s). This means that probabilities of replacement **by species** are equal to their relative abundances.
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# loads the necessary packages and sets the theme
+require(shiny)
+require(ggplot2)
+require(cowplot)
+require(rsconnect)
+theme_set(theme_cowplot())
+```
+
+## Code for one timestep of the neutral model
+The code below implements probably the simplest possible version of the model. In this case, I've implemented *zero-sum ecological drift* one death (and replacement) at a time. One individual dies and then it is immediately replaced by either reproduction from a species present on the site (a "local_birth" below) or by immigration. My implementation also makes one more assumption that is not strictly necessary, which is that the regional species pool contains an infinite number of species. In practice, this means that any time immigration occurs it must introduce a unique species to the community. This just makes the code a lot simpler to write.
+
+```{r}
+kill_and_replace = function(abundance_vector, K, nu, dd){
+  if(sum(abundance_vector) != K){return("Error: start at N = K")}
+  S = length(abundance_vector) 
+  freqs = abundance_vector/K
+  dis = 1 + dd*freqs # Model is *actually neutral* only when dd = 0, this line lets us break that later
+  kill = which.max(rmultinom(1, 1, prob = (dis*freqs)/sum(dis*freqs))[,1])
+  abundance_vector[kill] = abundance_vector[kill] - 1
+  if(runif(1) <= nu){abundance_vector[S + 1] = 1}else{
+    local_birth = which.max(rmultinom(1, 1, prob = freqs)[,1])
+    abundance_vector[local_birth] = abundance_vector[local_birth] + 1
+  }
+  abundance_vector[abundance_vector > 0]
+}
+```
+
+## Code for running the model over a defined timespan
+All that remains to run our simulations is to iterate the code from above (which applies to a single step in time) many times so that we can watch the population dynamics unfold over a specified time span.
+```{r}
+zero_sum_sim = function(S0, K, nu, dd, time_steps){
+  # Initialize the community
+  abundance = rmultinom(1, K, rep(1/S0, times = S0))[,1]
+  richness = length(abundance)
+  # Run the kill_and_replace algorithm for many time steps
+  for( t in 1:time_steps){
+    abundance = kill_and_replace(abundance, K, nu, dd)
+    richness[t] = length(abundance)
+  }
+  # Report the results (richness vs. time & final time step's Relative abundance curve)
+  richness = data.frame("time" = 1:t, "Richness" = richness)
+  abund = data.frame("rank" = 1:length(abundance), "Abund" = sort(abundance/K, decreasing = T))
+  list("richness" = richness, "rel_abund" = abund)
+}
+
+```
+
+## Now explore the behavior of the Neutral (and not so neutral) Community model
+This shinyApp allows you to visualize a stochastic run of the model. It automatically updates the display after you change the values of any input parameters. You may also vary the time span of the simulation.
+
+This app conducts simulations from Hubbell's neutral model as long as the parameter for intraspecific competition parameter is set to zero. First, conduct a variety of simulations while varying *K*, *S*0 or *nu* to get a general feel for which factors determine richness and evenness of communities.
+
+### Question 1: Keep density dependence at 0, and pick a longer time-span. Now go through and vary the commuity carrying capacity (*K*), initial richness (*S*), and immigration rate (*nu*) one at a time along a gradient (i.e., pick values across the sliders). Which ones seem to contribute the most to the graphical outcomes of richness and evenness? Which contribute the least?     
+
+Now let's make our model not-so neutral: let's turn on density dependence in the model. Keep all other parameters the same and vary only the density dependence slider along a gradient. 
+
+### Question 2: How does increasing the strength of intraspecific density dependent competition change the community dynamics?
+
+### Question 3: In our not-so-neutral model, with dd >0, all species experience the same strength of density dependence. Why does this break Hubbell's definition of neutrality?
+
+
+```{r, echo=F}
+# Define UI for stochastic harvest app ----
+ui <- fluidPage(
+
+  titlePanel("Neutral (or not) Community Dynamics"),
+
+  sidebarLayout(
+
+    sidebarPanel(
+    sliderInput(inputId = "K", label= "Community carrying capacity", min=100, max=1000, value = 100, step=100),
+    sliderInput(inputId = "S0", label= "Initial Richness", min=1, max=100, value = 10, step=10),
+    sliderInput(inputId = "nu", label= "Immigration rate", min=0.0001, max=.1, value = 0.01),
+    sliderInput(inputId = "dd", label= "Density dependent intra-spp. competition", min=0, max=10, value = 0),
+    sliderInput(inputId = "t", label= "Time span", min=10000, max=100000, value = 10000, step = 10000)
+    ),
+
+    mainPanel(
+    plotOutput("PopPlot"),
+    plotOutput("RelAbPlot")
+    )
+  )
+)
+
+
+# Define server logic to make plots 
+server <- function(input, output) {
+  popsize <- reactive({zero_sum_sim(S0=input$S0, K=input$K, nu=input$nu, dd=input$dd, time_steps = input$t)})
+  
+  output$PopPlot <- renderPlot(
+    
+    ggplot(data = popsize()[["richness"]], aes(x=time, y = Richness)) + geom_line() +
+      ylab("Species Richness") + xlab("time"))
+  
+  output$RelAbPlot <- renderPlot(
+    
+    ggplot(data = popsize()[["rel_abund"]], aes(x=rank, y = Abund)) + geom_line() +
+      ylab("Final species relative abundance") + xlab("Final species rank"))
+  
+}
+
+```
+```{r, echo=FALSE, fig.height=2}
+
+shinyApp(ui, server, options = list(height = 900))
+```

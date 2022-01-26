@@ -1,0 +1,159 @@
+---
+title: "Diversity estimation from static community sampling"
+author: "DJC & LMB"
+date: "10/28/2021"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This ShinyApp allows users to explore the scenario of collecting and analyzing a static, i.e., *snapshot*, sample of a ecological community. Static samples of ecological communities arise in many contexts (e.g.,  the Human Microbiome Project paper that we discussed in class, the sampling of trees in forest plots, parasite lineages within birds, etc). One common reality of biodiversity surveys is that we are often limited by our *effort*, the number of individuals that we can collect and identify. Unless we can *completely census* the entire community, then our observed richness is very likely an underestimate the true richness. In other words, we can say that our observed species richness is a *negatively biased* estimate of the true species richness- we might want to improve our estimate by *correcting* this bias. Understanding this bias is rather intuitive for species richness- if we cannot count all species, then we are likely missing many with our estimate. However, it is less intuitive how our sampling will impact bias on other diversity estimates, such as *diversity* or *evenness* (i.e., what will the direction of bias be).
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(shiny)
+library(ggplot2)
+library(cowplot)
+library(gtools)
+library(iNEXT)
+theme_set(theme_cowplot())
+
+# This function does some work within the larger function to basically map the observed sample back to the true community correctly
+locate <- function(x, targets) {
+  results <- lapply(targets, function(target) which(x == target))
+  names(results) <- targets
+  results
+}
+```
+
+### Scenario description
+This ShinyApp illustrates the differences between the diversity metrics of a hypothetical *true community* and estimates of these metrics from an *observed sample* a defined *effort*. Beware that it is slow to update! It can take several minutes.
+
+First, a community is generated that corresponds to user-selected values for *richness*, *R*, and a *scaled indicator of evenness*, $\alpha$, which species the similarity in the species' relative abundances. If $\alpha$ is large, then all species are similarly common. If $\alpha$ is small, then one or few species dominate the community while many become rare. Functionally, this is implemented as a draw from a *Dirichlet* distribution, which is  just a flexible distribution for modeling proportions for modeling variation in the proportions of multiple categories, i.e., species.
+
+The user can then specify a maximum sampling effort, defined as the number of individuals identified to species. This number of samples is then drawn from the community. For simplicity in coding, I've assumed that the number of individuals in the community is so large that we never exhaust it or change the relative abundances.
+
+The ShinyApp then displays five plots as output. The **top panel** shows a histogram of relative abundances for the *true community*. The next four panels contrast the results of our *observed sample* (in red) with the corresponding metrics from the *true community* (in black). The top left panel shows the rank-abundance curve based on the full sample size specified by the user. In the other three panels, an estimate of a biodiversity metric is shown as a function of the sample size from N = 1 to N = the sample size selected by the user to show any pattern with sampling effort.
+
+### Question 1: View the top left of the four panels. How does the observed rank-abundance curve differ from the true curve? How does this difference change when you increase evenness and sample size?
+
+### Question 2: View the top right of the four panels. The red-shaded envelope indicates the confidence interval for the estimate of *true richness*. This shaded band extends far past the actual sample size, because Chao's work indicates that it is acceptable to extrapolate out to ~2x your sample size. Under what conditions (input parameters) does this estimate interval fail the worst?
+
+### Question 3: View the bottom two of the four panels. Why do small sample sizes underestimate Diversity while overestimating Evenness?
+
+```{r echo=FALSE}
+Community_sample = function(R, a, N){ 
+  # Need as inputs richness, R, concentration parameter (of Dirichlet distribution), alpha, and sample size, N
+
+  ## The relative abundance is generated from richness, R, and the concentration parameter vector, alpha
+  # When alpha is small, species abundances are very different, when alpha is large, relative abundances are uniform
+  rels = rdirichlet(n=1, alpha=rep(a, times=R))
+  
+  # For now, let's assume that the community is so big relative to our samples, that we don't exhaust it
+  sample = apply(rmultinom(n=N, size=1, prob=rels), 2, which.max)
+
+  # Rarefaction
+  obs.R = numeric()
+  obs.H = numeric()
+  for(i in 1:N){
+    obs.R[i] = length(unique(sample[1:i]))
+    obs.counts =  sapply(locate(sample[1:i], 1:R), length)
+    obs.freqs = obs.counts[which(obs.counts > 0)]/i
+    obs.H[i] = -sum(obs.freqs*log(obs.freqs))
+  }
+  # Generate # of observed species vs. number of 
+  rare.df = data.frame("Samples collected" = 1:N, "Observed Species" = obs.R)
+  
+  # Community metrics
+  species_counts = sapply(locate(sample, 1:R), length)
+  species_freqs = species_counts[which(species_counts > 0)]/N
+  #Obs_H = -sum(species_freqs*log(species_freqs))
+  Tru_H = -sum(rels*log(rels))
+  Obs_R = length(unique(sample))
+  obs.rank.abund.df = data.frame("Rank" = Obs_R - rank(species_freqs) + 1, "Abundance" = species_freqs)
+  Tru.rank.abund.df = data.frame("Rank" = R - rank(rels) + 1, "Abundance" = as.vector(rels))
+  obs.H.df = data.frame("Sample" = 1:N, "Observed H" = obs.H)
+  obs.E.df = data.frame("Sample" = 1:N, "Observed E" = obs.H.df[,"Observed.H"]/log(rare.df[,"Observed.Species"]))
+  Tru_E = Tru_H/log(R)
+  Chao_abundance_data = data.frame(table(sample))
+  colnames(Chao_abundance_data) = c("Species", "Count")
+  rare_extrap = iNEXT(Chao_abundance_data[,"Count"], q=c(0,1))$iNextEst
+  list("Rarefaction data" = rare.df, "Observations" = sample, "Rare_Extrap" = rare_extrap,
+       "Rank-abundance data" = obs.rank.abund.df, "True rank-abundance data" = Tru.rank.abund.df,
+       "Observed Richness" = Obs_R, "True Richness" = R, "Observed Evenness data" = obs.E.df, 
+       "Observed Shannon Diversity data" = obs.H.df, "True Shannon Diversity" = Tru_H, "True Evenness" = Tru_E)
+}
+```
+
+
+
+```{r echo=FALSE}
+# Define UI  ----
+ui <- pageWithSidebar(
+  
+  # App title ----
+  headerPanel("Ecological community sampling and measurement"),
+  
+  # Sidebar panel for inputs ----
+  sidebarPanel(
+    #checkboxInput(inputId= "hide1", label = "hide plot 1?", value=TRUE),
+    #checkboxInput(inputId= "hide2", label = "hide plot 2?", value=TRUE),
+    sliderInput(inputId = "R", label= "True community richness", min=10, max=1000, value = 100, step=10),
+    sliderInput(inputId = "a", label= "Scaled evenness", min=0.1, max=5, value = 1),
+    sliderInput(inputId = "N", label= "Sample size", min=1e3, max=1e4, value = 1e3, step=1000),
+
+  ),
+  
+  # Main panel for displaying outputs ----
+  mainPanel(
+    plotOutput("TruComm"),
+    plotOutput("ObsComm"),
+    #plotOutput("HarvestPlot")
+      
+    )
+  )
+
+
+# Define server logic to make plots 
+server <- function(input, output) {
+  community <- reactive({Community_sample(R=input$R, a=input$a, N=input$N)})
+  #rank_abund <- reactive({data.frame(community()[["True rank-abundance data"]])})
+
+  #reactive({input$N0*exp(input$r*(0:input$t))})
+  output$TruComm <- renderPlot({
+    
+    ggplot() + geom_histogram(data=community()[["True rank-abundance data"]], aes(x=Abundance))
+    
+  })
+  
+  output$ObsComm <- renderPlot({
+  
+    plot_grid(
+            ggplot() + 
+              geom_line(data=community()[["True rank-abundance data"]], aes(x=Rank, y=Abundance), colour="black") +
+              geom_line(data=community()[["Rank-abundance data"]], aes(x=Rank, y=Abundance), colour="red") + scale_y_log10(),
+            
+            ggplot() + geom_line(data=community()[["Rarefaction data"]], aes(x=Samples.collected, y=Observed.Species, colour="red") ) +
+              geom_abline(intercept = community()[["True Richness"]], slope=0, colour="black") + ylim(0, 1.25*community()[["True Richness"]]) +
+              geom_ribbon(data=subset(community()[["Rare_Extrap"]], order == 0), aes(x=m, ymin=qD.LCL, ymax=qD.UCL), fill="red", alpha=0.2) +
+              ylab("Species richness") + xlab("Samples collected") + theme(legend.position="none"),            
+
+            ggplot() + geom_line(data=community()[["Observed Shannon Diversity data"]], aes(x=Sample, y=Observed.H), colour="red" ) +
+              geom_abline(intercept = community()[["True Shannon Diversity"]], slope=0, colour="black") + ylim(0, 1.25*community()[["True Shannon Diversity"]]) +
+              ylab("Shannon Diversity, H") + xlab("Samples collected"),
+            
+            ggplot() + geom_line(data=community()[["Observed Evenness data"]], aes(x=Sample, y=Observed.E), colour="red" ) +
+              geom_abline(intercept = community()[["True Evenness"]], slope=0, colour="black") + ylim(0, 1.25*community()[["True Evenness"]]) +
+              ylab("Evenness, E") + xlab("Samples collected"),
+            
+            ggplot(),
+              nrow=2, ncol=2)
+  
+  })
+  
+}
+
+shinyApp(ui, server, options = list(height = 900))
+```

@@ -1,5 +1,5 @@
 ---
-title: "Competing contact functions"
+title: "Comparing contact functions that define classic transmission models"
 author: "DJC & LMB"
 date: "10/19/2021"
 output: html_document
@@ -10,8 +10,21 @@ runtime: shiny
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Robots!
 
+## Introduction
+
+Skynet has been successful, and robots control the earth. You are a T-8000 logistics robot tasked with monitoring the performance of HexBugs (robot scavengers that collect metal dust and other debris to be processed into new machines). Recently, however, you’ve noticed that many of these HexBugs are becoming corrupted with a Robo Pox virus, which you suspect was cunningly released by John Connor, right before his death. The virus seems to transmit from HexBug to HexBug following collisions. You need to understand the transmission dynamic in order to develop a control plan otherwise your supervisor bot will wipe your memory and melt you down.
+
+<center>
+![Your Supervisor](https://raw.githubusercontent.com/DaveCivitello/grad_ecology/main/skynet.png)
+**Figure 1.** Your supervisor.
+</center>
+
+<center>
+ ![](https://raw.githubusercontent.com/DaveCivitello/grad_ecology/main/hexbug.png)
+ 
+ **Figure 2.** A Hexbug robot.
+</center>
 
 ```{r, echo=FALSE, warning=FALSE, message=FALSE}
 # loads the necessary packages and sets the theme
@@ -23,13 +36,22 @@ require(rsconnect)
 theme_set(theme_cowplot())
 ```
 
-## Robots
+#### Question 1. What is the major assumption about the host-host contact process that distinguishes density-dependent transmission from frequency dependent transmission?
+
+#### Question 2. How would you design an experiment to support for either of these assumptions for Robo Pox?
+
+#### Question 3. Conduct an experimental test of these assumptions with the HexBugs and transmission arena available to you. Conduct at least 20x 30-second trials and record your data on a sheet of paper/your computer. As you go, enter each observation into the Shiny App below, one at a time. After 5 entries, you will see the interface begin to evaluate the model fits using your data. Continue entering all 20 data points. 
 
 ```{r, echo=F}
 # Shiny app with 2 fields that the user can submit data for
 shinyApp(
   
+  
   ui = fluidPage(
+    
+    titlePanel("Investigation of the Hexbug contact function"),
+    
+    
     sidebarPanel(#DT::dataTableOutput("responses", width = 150), tags$hr(),
     numericInput(inputId = "Hexbugs", value=NA, label= "Hexbug abundance", min=0, step=1),
     numericInput(inputId = "Contacts", value=NA, label= "Contacts", min=0, step=1),
@@ -38,7 +60,8 @@ shinyApp(
     actionButton("clear", "Clear")
     ),
     
-     mainPanel(plotOutput("PopPlot"))
+     mainPanel(plotOutput("PopPlot"),
+               tableOutput("AICtable"))
                
   ),
   
@@ -55,6 +78,7 @@ shinyApp(
           if(dim(addData$dataset0)[1] >= 5){ # Only calculate the model fits if there are at least 5 data points
             addData$fit.dt <- mle2(Contacts ~ dpois(0.001 + c*Hexbugs), start=list(c=1), data=addData$dataset0)
             addData$fit.ft <- mle2(Contacts ~ dpois(0.001 + abs(c)), start=list(c=5), data=addData$dataset0)
+            addData$Akaikeweights <- round(AICtab(addData$fit.dt, addData$fit.ft, sort=F, weights=T)[3]$weight,3)
           }
           
     })
@@ -72,13 +96,25 @@ shinyApp(
     output$PopPlot <- renderPlot(if(dim(addData$dataset0)[1] < 5){
                                         ggplot(data=addData$dataset0, aes(x=Hexbugs, y=Contacts)) + geom_point()}else{
                                               ggplot(data=addData$dataset0, aes(x=Hexbugs, y=Contacts)) + 
+                                              xlim(c(0, 1.2*max(addData$dataset0$Hexbugs))) + ylim(c(0, 1.2*max(addData$dataset0$Contacts))) + 
                                               geom_point() + geom_abline(intercept = 0, slope = coef(addData$fit.dt)["c"], colour="blue") +
-                                              geom_abline(intercept = coef(addData$fit.dt)["c"], slope = 0, colour="red")
+                                              geom_abline(intercept = coef(addData$fit.ft)["c"], slope = 0, colour="red")  +
+                                              # Labeling
+                                              geom_text(x=0.15*max(addData$dataset0$Hexbugs), y = 1.2*max(addData$dataset0$Contacts),
+                                                  label="Model, weight of evidence", colour="black") +
+                                              geom_text(x=0.15*max(addData$dataset0$Hexbugs), y = 1.15*max(addData$dataset0$Contacts),
+                                                label=paste0("Density dependent, ", addData$Akaikeweights[1]), colour="blue") +
+                                              geom_text(x=0.15*max(addData$dataset0$Hexbugs), y = 1.1*max(addData$dataset0$Contacts),
+                                                label=paste0("Frequency dependent, ", addData$Akaikeweights[2]), colour="red")
                                             })
+    #output$AICtable <- renderTable(addData$Akaiketable)
    },
   
-  options = list(height = 900)
+  options = list(height = 500)
 )
 
 ```
 
+#### Question 4. The Shiny App above plots the *best fit* of contact models that correspond to the density-dependent and frequency-dependent model and provides the relative amount of support for the two models (called the "weight of evidence", which scales from 0-1). Which model provides a better fit to the data? In absolute terms, do you think the better model provides a good or bad fit to the data? Would you propose a different contact model?
+
+#### Question 5. Based on the data you collected and the winning model, what kind of intervention or strategy would you suggest to your supervisor to slow the local spread of Robo Pox?

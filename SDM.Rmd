@@ -1,0 +1,141 @@
+---
+title: "Species Distribution Modeling"
+author: "DJC"
+date: "8/20/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This activity illustrates the fitting and interpretation of an occurrence-based species distribution model (SDM). It is based on a module published in Teaching Issues and Experiments in Ecology ([Carter 2017](https://tiee.esa.org/vol/v13/issues/data_sets/carter/abstract.html)).
+
+Investigating species distributions and the factors that determine them is definitely an **iterative process** in which a research can successively refine insights about the focal species. I generally think about this process is largely flipping between two phases with complementary primary objectives. Either phase could be used as a starting point. 
+
+In one phase, the study aims to **infer the requirements of the organism using geospatial occurence data**. This would use information about the species' range and environmental conditions to identify important factors or suitable ranges. This is generally a hypothesis generating phase, ending in, e.g., "Based on its spatial distribution, I suspect that mangrove trees cannot tolerate freezing temperatures." These hypotheses could be tested experimentally.
+
+An alternative phase would aim to **predict the current, past, or future distribution of an organism from independently measured data on fitness or function across an environmental gradient**. This results in a sort of *predictive suitability map* that itself is a hypothesis. If species distribution data can be collected, then this hypothesis can be tested.
+
+# Using occurence data to infer factors that influence suitability
+
+Occurence-based SDMs pair detection of individuals of the target species with spatial datasets on climate, land cover, or other factors to (1) infer the factors that influence detection (and, presumably, occupancy) and (2) estimate the suitability of habitat across larger regions. These analyses can be used in conjunction with past climatological data to reconstruct range histories and they can be used with environmental projections to forecast range shifts, e.g., in response to climate change. However, these uses of SDMs have been (fairly) criticized for their strict assumptions and poor performance when challenged with data.
+
+Methodologically, SDMs also vary in their input data needs. This example uses only presence data, i.e., locations of detection for the species, whereas other methods incorporate presence-absence data. One of the biggest challenges in input data for observational SDMs is to identify biases in data collection, which would propagate through the entire workflow ("Garbage in garbage out").
+
+# Setting up packages, working directory, and the map
+
+This activity will require six R packages. If you have never used these before, you will need to install them with the install.packages() function. In addition, you may need modify your working directory using the setwd() function below. Lastly, you will need to navigate to the FILES page of our class Canvas site to download a folder called "cb_2018_us_state_20m". This folder contains a variety of files that R will use simply to make a US map. Put this entire folder into your working directory.
+
+```{r setup2, echo=FALSE, results="hide"}
+# load the required packages
+lapply(c('dismo','maptools','rgdal','spocc', 'raster', 'rJava'), require, character.only=T)
+
+# Set working directory
+setwd('C:/RData') #Change path name to location of 'usa' folder
+
+# Import map of the US
+usa <- readOGR('cb_2018_us_state_20m.shp')
+
+```
+
+# Downloading occurence records from the web
+
+The Global Biodiversity Information Facility [(GBIF)](www.gbif.org),is an online database that contains georeferenced data on a huge range of species. These data are submitted by professional researchers, community science groups, and even from apps, like iNaturalist.
+
+The gbif() function from the **dismo** package is a user-friendly way do automate the downloading of records. Below, we request georeferenced records for *Chrysemys picta*, painted turtles. We then subset these occurence data to the United States for simplicity in completing this exercise.
+
+## Replay value
+
+After we have completed our demontration with *Chrysemys picta*, you can try this out for any other species, provided there are enough observations within the USA in the GBIF database. Just update the taxonomic information in the code chunk immediately below. Note that extremely common species will have many records and downloading these can take some time.
+
+```{r data}
+# Download the raw data from the GBIF database
+dat <- gbif(genus='Chrysemys', species='picta', geo=TRUE) # Here's a widely distributed species
+
+# Remove non-georeferenced records and those outside of the US
+dat <- subset(dat, !is.na(lon) & !is.na(lat) & country == "United States")
+```
+
+# Plot the occurence records on the US map
+
+```{r, fig.height=7, fig.width = 9}
+plot(usa, xlim=c(-125, -60), ylim=c(30,50), axes=T,cex.axis=2, col='light gray')
+points(dat$lon, dat$lat, col='dark red', pch=20, cex=0.75)
+
+```
+```{r}
+
+```
+
+
+# Download the bioclim data
+We can download a raster of climatic data using the getData() function from the *raster* package. There are a few datasets available, including global administrative boundaries (GADM), global interpolated climate data (worldclim), future climate projections (CMIP5), and others. Additional arguments can define resolution (res= ), variables (var= ), or other qualities of the data request.
+
+```{r}
+# Download bioclim variables
+bioclim <- getData('worldclim', res=10, var='bio')
+```
+# What are the bioclim variables?
+Take a few moments to consider what kind of variables might be used in species distribution modeling applications.
+- What are the environmental factors that are likely to influence distribution or habitat suitability?
+- With what spatial resolution are these factors measured?
+- What are the appropriate temporal scales over which these factors should be averaged, summarized, or considered?
+
+Given these considerations, suggest at least 3-5 explanatory variables that you might expect to use in an SDM study.
+
+After you've suggested some, visit [The bioclim website](https://www.worldclim.org/data/bioclim.html) to read about this widely used dataset.
+
+
+# Plotting bioclim projects
+Once we have these environmental data, we can project them back onto the raster format and visualize them
+```{r}
+# Project the bioclim layers
+bioclim.proj <- raster::projectRaster(bioclim, crs='+proj=longlat +datum=NAD83 +no_defs +ellps=GRS80 +towgs84=0,0,0')
+plot(bioclim.proj)
+```
+
+```{r}
+# Create spatial points
+points.us <- SpatialPointsDataFrame(cbind(dat$lon[dat$country=='United States'], dat$lat[dat$country=='United States']), dat[dat$country=='United States',])
+
+
+# Set the coordinate system of the points
+crs(points.us) <- ' +proj=longlat +datum=NAD83 +no_defs +ellps=GRS80 +towgs84=0,0,0'
+
+# Clip occurrence records to the US boundary
+occur <- points.us[usa,]  
+
+# Clip the bioclim variables to the US boundary
+bio.occur <- mask(bioclim.proj, mask=usa)
+
+# Plot occurrence records on top of the clipped bioclim layers and US boundary
+plot(bio.occur$bio1, cex.axis=2, xlim=c(-127, -65), ylim=c(20,50))
+lines(usa)
+points(occur$lon, occur$lat, col='dark red', pch=20, cex=0.75)
+```
+
+```{r}
+# Extract the bioclim variables at the occurrence points
+presence <- extract(bio.occur, occur)
+
+# Fit a bioclim model
+bio.fit <- bioclim(presence[,c('bio1','bio2','bio3','bio7','bio8','bio12', 'bio15','bio18','bio19')])
+
+# Create a predictive map
+predict.map <- predict(bio.occur, bio.fit)
+
+# Plot the predictive map
+plot(predict.map, cex.axis=2, xlim=c(-127, -65), ylim=c(20,50))
+lines(usa)
+```
+```{r}
+# Plot the response to variation in the predictive factors
+response(bio.fit)
+```
+
+
